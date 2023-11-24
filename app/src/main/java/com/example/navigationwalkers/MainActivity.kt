@@ -62,24 +62,7 @@ class MainActivity : AppCompatActivity() {
         mapView = findViewById(R.id.map_view)
         mapView.onCreate(savedInstanceState)
         locationSource = FusedLocationSource(this, LOCATION_PERMISSION_REQUEST_CODE)
-        bottomNavigationView = findViewById(R.id.bottomNavi)
 
-        bottomNavigationView.setOnItemSelectedListener { menuItem ->
-            when (menuItem.itemId) {
-                R.id.action_home -> {
-                    setFrag(0)
-                    showMapView()
-                    true // true를 반환하여 이벤트가 소비되었음을 나타냅니다.
-                }
-                R.id.action_settings -> {
-                    setFrag(2)
-                    hideMapView()
-                    // 메뉴 아이템 3을 클릭했을 때 처리할 작업을 여기에 추가
-                    true
-                }
-                else -> false // 처리할 메뉴 아이템이 없는 경우 false를 반환
-            }
-        }
         mapView = findViewById(R.id.map_view)
         mapView.onCreate(savedInstanceState)
         mapView.getMapAsync {

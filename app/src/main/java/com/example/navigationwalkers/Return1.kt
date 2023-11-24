@@ -54,6 +54,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.util.Timer
 import java.util.TimerTask
+import kotlin.math.roundToInt
 
 class Return1 : Fragment() {
     private var selectedItem: String? = null
@@ -88,11 +89,11 @@ class Return1 : Fragment() {
     private val passedCoords = HashSet<LatLng>()
     private lateinit var turnTextView: TextView
     private val routeColors = listOf(
-        Color.RED,    // 0번 경로 색상 (빨간색)
-        Color.BLUE,   // 1번 경로 색상 (파란색)
-        Color.GREEN,
+        Color.argb(0, 0, 0, 0),    // 0번 경로 색상 (빨간색)
+        Color.argb(0, 0, 0, 0),   // 1번 경로 색상 (파란색)
+        Color.YELLOW,
         Color.argb(0, 0, 0, 0),
-        Color.YELLOW// 4번 경로 색상 (초록색)
+        Color.argb(0, 0, 0, 0)// 4번 경로 색상 (초록색)
     )
     internal var isGuidanceRunning = false
     private var isGuidingLeft30m = false
@@ -100,7 +101,7 @@ class Return1 : Fragment() {
     private var isGuidingLeft100m = false
     private var isGuidingRight100m = false
     private var isGuiding0m = false
-    private val toleranceDistance = 100.0
+    private val toleranceDistance = 150.0
     private val coroutineScope = CoroutineScope(Dispatchers.Default)
     private var isOffRoute = false
 
@@ -148,6 +149,7 @@ class Return1 : Fragment() {
                         speakOnApproachingRightTurn10(it)
                         speakOnApproachingStraight(it)
                         speakOnApproachingStraight2(it)
+                        onLocationChanged(it)
                     }
                 }
             }
@@ -338,6 +340,7 @@ class Return1 : Fragment() {
         directionButton.setOnClickListener {
             // 서버와 통신하여 방향 정보 가져오기
             shortestButton.setBackgroundColor(Color.LTGRAY)
+
             sendRequestToServer()
             guidanceButton.visibility = View.VISIBLE
             directionButton.visibility = View.GONE
@@ -480,6 +483,7 @@ class Return1 : Fragment() {
         return try {
             val latitude = mapyFormatted?.toDouble() ?: 0.0
             val longitude = mapxFormatted?.toDouble() ?: 0.0
+            Log.d("parseLatLong", "Latitude: $latitude, Longitude: $longitude")
             doubleArrayOf(latitude, longitude)
         } catch (e: NumberFormatException) {
             null
@@ -544,6 +548,9 @@ class Return1 : Fragment() {
 
                             val estimatedTimeForSafeRoute = calculateEstimatedTime(distances[2], averageWalkingSpeed)
                             safeRouteButton.text = "안심거리\n\n${String.format("%.2f km", distances[2])} \n\n $estimatedTimeForSafeRoute"
+
+                            val estimatedTimeForShortest2 = calculateEstimatedTime(distances[4], averageWalkingSpeed)
+                            optimalButton.text = "계산최단거리\n\n${String.format("%.2f km", distances[4])} \n\n $estimatedTimeForShortest2"
                         }
                     } else {
                         // 서버에서 오류 응답을 받은 경우 처리
@@ -674,7 +681,7 @@ class Return1 : Fragment() {
                             marker.width = 70
                             marker.height = 70
                             marker.map = naverMap
-                            marker.icon = OverlayImage.fromResource(R.drawable._pngtree_vector_camera_icon_4173877)
+                            marker.icon = MarkerIcons.BLACK
                             marker.iconTintColor = Color.CYAN
                             markers.add(marker)
                         }
@@ -753,22 +760,24 @@ class Return1 : Fragment() {
             val bearing1 = previousLocation.bearingTo(currentLocation)
             val bearing2 = currentLocation.bearingTo(nextLocation)
 
+
             var angle = bearing2 - bearing1
             if (angle < -180) {
                 angle += 360
             } else if (angle > 180) {
                 angle -= 360
             }
+            val distanceToNextTurn = calculateDistance(currentLocation, nextCoord)
 
             if (angle > 30) {
                 rightTurnCoords.add(currentCoord)
-                println("우회전: $currentCoord")
+                println("우회전: $currentCoord,다음 회전까지 거리: $distanceToNextTurn")
             } else if (angle < -30) {
                 leftTurnCoords.add(currentCoord)
-                println("좌회전: $currentCoord")
+                println("좌회전: $currentCoord, 다음 회전까지 거리: $distanceToNextTurn")
             } else {
                 straightCoords.add(currentCoord)
-                println("직진: $currentCoord")
+                println("직진: $currentCoord, 다음 회전까지 거리: $distanceToNextTurn")
             }
         }
     }
@@ -786,6 +795,72 @@ class Return1 : Fragment() {
 
     val turnThreshold0 = 5.0
     val turnThreshold20 = 20.0
+    val guidedTurnCoords = mutableSetOf<LatLng>()
+    private val turnThreshold = 5.0f
+
+    // 회전 지점 안내 텍스트를 업데이트하는 함수
+    fun updateTurnGuidanceText(currentLocation: Location) {
+        // 가장 가까운 회전 지점을 찾기 전에 지나친 회전 지점을 제외
+        val upcomingTurns = (leftTurnCoords + rightTurnCoords).filter { turnCoord ->
+            !guidedTurnCoords.contains(turnCoord)
+        }
+
+        var minDistance = Float.MAX_VALUE
+        var closestTurn: LatLng? = null
+        for (turnCoord in upcomingTurns) {
+            val distance = calculateDistance(currentLocation, turnCoord)
+            if (distance < minDistance) {
+                minDistance = distance
+                closestTurn = turnCoord
+            }
+        }
+
+        // 가장 가까운 회전 지점에 대한 안내 메시지를 생성
+        closestTurn?.let {
+            val directionResource = when {
+                leftTurnCoords.contains(it) && minDistance < 30 -> R.drawable.left // 30m 이하 남았을 때 좌회전 이미지
+                rightTurnCoords.contains(it) && minDistance < 30 -> R.drawable.right // 30m 이하 남았을 때 우회전 이미지
+                else -> R.drawable.straight // 그 외의 경우는 직진 이미지
+            }
+
+            // 거리를 10m 단위로 반올림합니다.
+            val roundedDistance = (minDistance / 10).roundToInt() * 10
+            val text = "$roundedDistance 미터"
+
+            // 텍스트와 함께 이미지를 TextView에 설정합니다.
+            turnTextView.text = text
+            turnTextView.setCompoundDrawablesWithIntrinsicBounds(0, 0, directionResource, 0)
+            turnTextView.compoundDrawablePadding = 10 // 이미지와 텍스트 사이의 패딩을 설정합니다.
+
+            // 새로운 지점을 안내된 지점 목록에 추가합니다.
+            if (minDistance <= turnThreshold) {
+                guidedTurnCoords.add(it)
+            }
+        }
+    }
+
+    // 사용자 위치가 업데이트 될 때마다 호출되는 함수
+    fun onLocationChanged(currentLocation: Location) {
+        // 지나쳤던 지점들을 확인하고 목록에서 제거합니다.
+        val iterator = guidedTurnCoords.iterator()
+        while (iterator.hasNext()) {
+            val turnCoord = iterator.next()
+            val distance = calculateDistance(currentLocation, turnCoord)
+            if (distance < turnThreshold) {
+                // 지나친 지점은 제거합니다.
+                iterator.remove()
+            }
+        }
+
+        // 회전 지점 안내 텍스트를 업데이트합니다.
+        updateTurnGuidanceText(currentLocation)
+    }
+
+
+
+
+
+
 
 
     fun speakOnApproachingStraight(currentLocation: Location) {
@@ -793,9 +868,6 @@ class Return1 : Fragment() {
             val distance = calculateDistance(currentLocation, rightTurnCoord)
 
             if (distance <= turnThreshold0 && !guidedCoords0m.contains(rightTurnCoord)) {
-                val text = ""
-                speak(text)
-                turnTextView.text = text
                 guidedCoords10m.add(rightTurnCoord)
                 isGuiding0m = true
             }
@@ -806,9 +878,6 @@ class Return1 : Fragment() {
             val distance = calculateDistance(currentLocation, leftTurnCoord)
 
             if (distance <= turnThreshold0 && !guidedCoords0m.contains(leftTurnCoord)) {
-                val text= ""
-                speak(text)
-                turnTextView.text = text
                 guidedCoords10m.add(leftTurnCoord)
                 isGuiding0m = true
             }
@@ -904,6 +973,10 @@ class Return1 : Fragment() {
                 directionButton.visibility = View.VISIBLE
                 guidanceButton.visibility = View.GONE
                 turnTextView.visibility = View.GONE
+                mainStreetButton.setBackgroundColor(Color.WHITE)
+                shortestButton.setBackgroundColor(Color.WHITE)
+                safeRouteButton.setBackgroundColor(Color.WHITE)
+                optimalButton.setBackgroundColor(Color.WHITE)
                 val desiredZoomLevel = 14.0
                 for (overlay in pathOverlays) {
                     overlay.map = null
@@ -1047,6 +1120,9 @@ class Return1 : Fragment() {
 
                             val estimatedTimeForSafeRoute = calculateEstimatedTime(distances[2], averageWalkingSpeed)
                             safeRouteButton.text = "안심거리\n\n${String.format("%.2f km", distances[2])} \n\n $estimatedTimeForSafeRoute"
+
+                            val estimatedTimeForShortest2 = calculateEstimatedTime(distances[4], averageWalkingSpeed)
+                            optimalButton.text = "계산최단거리\n\n${String.format("%.2f km", distances[4])} \n\n $estimatedTimeForShortest2"
                         }
                     } else {
                         // 서버에서 오류 응답을 받은 경우 처리

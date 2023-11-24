@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -36,6 +37,7 @@ class Frag1 : Fragment() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private var mapxFormatted: String? = null
     private var mapyFormatted: String? = null
+    private lateinit var coordinatesMap: MutableMap<String, Pair<String, String>>
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         view = inflater.inflate(R.layout.frag1, container, false)
@@ -56,8 +58,8 @@ class Frag1 : Fragment() {
         resultListView.setOnItemClickListener { _, _, position, _ ->
             val selectedItem = resultAdapter.getItem(position) // 클릭한 아이템 텍스트 가져오기
             frameLayout2?.visibility = View.GONE
-
-
+            val mapxFormatted = coordinatesMap[selectedItem]?.first ?: "0.0"
+            val mapyFormatted = coordinatesMap[selectedItem]?.second ?: "0.0"
 
 
             val fragment = Return1()
@@ -65,6 +67,7 @@ class Frag1 : Fragment() {
             bundle.putString("selectedItem", selectedItem)
             bundle.putString("mapxFormatted", mapxFormatted)
             bundle.putString("mapyFormatted", mapyFormatted)
+
             fragment.arguments = bundle
 
             val transaction = requireActivity().supportFragmentManager.beginTransaction()
@@ -130,6 +133,10 @@ class Frag1 : Fragment() {
             requestLocation()
         }
     }
+    private fun convertCoord(coord: String): String {
+        // 넘어온 좌표값을 정수형으로 변환하고, 1E6 나 1E7로 나누어 실수형 좌표로 변환합니다.
+        return (coord.toDouble() / 1E7).toString()
+    }
 
     private fun getResultSearch(query: String) {
         val apiInterface = ApiClient.getInstance().create(ApiInterface::class.java)
@@ -144,20 +151,19 @@ class Frag1 : Fragment() {
                         val items = jsonObject.getJSONArray("items")
 
                         val resultList = ArrayList<String>()
+                        coordinatesMap = mutableMapOf() // Initialize the map to store the coordinates
 
                         for (i in 0 until items.length()) {
                             val item = items.getJSONObject(i)
                             val title = item.getString("title").replace(Regex("<[/]?b>"), "")
-                            val mapxString = item.getString("mapx")
-                            val mapyString = item.getString("mapy")
+                            val mapx = convertCoord(item.getString("mapx"))
+                            val mapy = convertCoord(item.getString("mapy"))
 
-                            val mapxValue = mapxString.toDouble() / 1e7
-                            val mapyValue = mapyString.toDouble() / 1e7
 
-                            mapxFormatted = String.format("%.7f", mapxValue)
-                            mapyFormatted = String.format("%.7f", mapyValue)
+                            // Store the coordinates in the map with the title as the key
+                            coordinatesMap[title] = Pair(mapx, mapy)
 
-                            resultList.add("$title")
+                            resultList.add(title)
                         }
 
                         resultAdapter.clear()
@@ -175,6 +181,7 @@ class Frag1 : Fragment() {
             }
         })
     }
+
 
 
 
